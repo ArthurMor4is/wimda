@@ -15,13 +15,15 @@ if "user_history" not in st.session_state:
 st.title("Where Is My Data ? 🤖")
 
 VECTOR_DB_PATH = "./vector_db"
+API_KEY = st.sidebar.text_input("OpenAI API Key", type="password")
+MANIFEST_JSON_PATH = st.sidebar.text_input("Dbt manifest json path", value="./files/manifest.json")
 
 
 @st.cache_resource
-def dbt_to_vector_store(openai_api_key):
+def dbt_to_vector_store():
     db = Chroma(
         persist_directory=VECTOR_DB_PATH,
-        embedding_function=OpenAIEmbeddings(openai_api_key=openai_api_key),
+        embedding_function=OpenAIEmbeddings(openai_api_key=API_KEY),
     )
     return db
 
@@ -48,15 +50,15 @@ def build_input_to_llm(_final_docs, input_text):
             input += "SCHEMA_NAME: " + doc.metadata["schema"]
             input += "MODEL_NAME: " + doc.metadata["name"]
             input += (
-                "Uma query que seleciona todas as linhas desse modelo é: "
+                "A query that selects all lines from this model is: "
                 f"select * from {doc.metadata['schema']}.{doc.metadata['name']} "
             )
-            input += "Descrição do modelo: " + doc.page_content
-            input += "Colunas do modelo: " + doc.metadata["columns"]
+            input += "Model's description: " + doc.page_content
+            input += "Model's columns: " + doc.metadata["columns"]
 
             input += "<model>"
     input += (
-        "Considerando os modelos definidos, me responda com o máximo de detalhes possível: "
+        "Considering the defined models, answer me with as much detail as possible: "
         + input_text
     )
     return input
@@ -64,7 +66,7 @@ def build_input_to_llm(_final_docs, input_text):
 
 @st.cache_data
 def generate_response(input_text, _db):
-    llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+    llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, api_key=API_KEY)
     final_docs = _db.similarity_search(input_text, k=4)
     input_to_llm = build_input_to_llm(_final_docs=final_docs, input_text=input_text)
     llm_response = llm.call_as_llm(input_to_llm)
@@ -100,20 +102,17 @@ def load_data_to_docs(file_path):
     return loader.load()
 
 
-def initialize_vector_db(dbt_project_path, openai_api_key):
-    all_docs = load_data_to_docs(dbt_project_path + "/target/manifest.json")
+def initialize_vector_db():
+    all_docs = load_data_to_docs(MANIFEST_JSON_PATH)
     vectordb = Chroma.from_documents(
         all_docs,
-        OpenAIEmbeddings(openai_api_key=openai_api_key),
+        OpenAIEmbeddings(openai_api_key=API_KEY),
         persist_directory=VECTOR_DB_PATH,
     )
     vectordb.persist()
-    db = dbt_to_vector_store(openai_api_key)
+    db = dbt_to_vector_store()
     return db
 
-
-api_key = st.sidebar.text_input("OpenAI API Key", type="password")
-dbt_project_path = st.sidebar.text_input("Dbt project path", value="./data_models")
 
 with st.form(key="input_form"):
     st.write("Welcome to *Where Is My Data ?*")
@@ -124,13 +123,13 @@ with st.form(key="input_form"):
     )
     submitted = st.form_submit_button("Submit")
     if submitted:
-        if not api_key:
+        if not API_KEY:
             st.error("Please, provide an OpenAI API Key")
             st.stop()
-        if not dbt_project_path:
+        if not MANIFEST_JSON_PATH:
             st.error("Please, select a dbt path first")
             st.stop()
-        db = initialize_vector_db(dbt_project_path, api_key)
+        db = initialize_vector_db()
         response = generate_response(user_input, db)
         st.session_state.user_history.append(user_input)
         st.session_state.bot_history.append(response)
