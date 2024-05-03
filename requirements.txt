@@ -3,3 +3,6 @@ openai
 langchain
 pytest
 pyperclip
+jq
+chromadb
+tiktoken
